@@ -1,0 +1,226 @@
+---
+title: "Visualize GEMMA outputs"
+author: "Miles Roberts"
+date: "2021-07-22"
+output: html_document
+---
+
+## Goals
+* Identify significant hits from multivariate and univariate GWAS runs in GEMMA
+* Visualize hits with manhattan plots
+
+```{r}
+rm(list = ls())
+library(qqman)
+library(data.table)
+library(ggplot2)
+
+#Load SNP positions on chromosomes
+wd = "C:\\Users\\miles\\OneDrive\\Education\\MichiganStateUniversity\\Josephs_Lab_Projects\\pleiotropyGWAS\\01_arabidopsis_trait_correlations\\raw_data"
+setwd(wd)
+pos = fread("positions.txt", sep = "\t", header = T)
+
+#Write function to convert SNP identifiers to chromosomal locations
+id_to_chrom = function(x){
+	all_snpids = as.numeric(gsub("rs","",x))
+	all_chrom = all_snpids
+
+	all_chrom[which(0 <= all_snpids & all_snpids <= 2597734)] = 1
+
+	all_chrom[which(2597735 <= all_snpids & all_snpids <= 4466529)] = 2
+
+	all_chrom[which(4466530 <= all_snpids & all_snpids <= 6660781)] = 3
+
+	all_chrom[which(6660782 <= all_snpids & all_snpids <= 8427785)] = 4
+
+	all_chrom[which(8427786 <= all_snpids & all_snpids <= 10709465)] = 5
+
+	return(all_chrom)
+
+}
+
+#Write function to format results for qqman package plots (manhattan plot, qqplot)
+gemma_to_qqman = function(fitsnps, pos){
+
+	#Extract snp ids, convert to chromosome information
+	all_snpids = as.numeric(gsub("rs","",fitsnps$rs))
+	all_chrom = id_to_chrom(fitsnps$rs)
+
+	#Extract position information for snps
+	all_pos = as.data.frame(pos[which(pos$V1 %in% all_snpids), 2])
+	names(all_pos) = NULL
+
+	#Build dataframe for genome wide manhattan plot
+	my_results = data.frame(SNP = fitsnps$rs, CHR = all_chrom, BP = all_pos, P = fitsnps$p_wald)
+	return(my_results)
+}
+```
+
+
+## mvGWAS with GxE
+```{r}
+setwd("C:\\Users\\miles\\OneDrive\\Education\\MichiganStateUniversity\\Josephs_Lab_Projects\\pleiotropyGWAS\\01_arabidopsis_trait_correlations\\attempt9\\output")
+mysnps = fread("mvGWASresults_FT16_RGR_NoGxe.assoc.txt.gz")
+mvGWASsnps = mysnps
+#head(mysnps)
+#summary(mysnps$p_wald)
+
+mysnps$p_wald_bf = p.adjust(mysnps$p_wald, method = "bonferroni")
+mysnps$p_wald_bh = p.adjust(mysnps$p_wald, method = "BH")
+
+#How many SNPs pass thresholds
+pThresh = 0.1
+mysnps[which(mysnps$p_wald_bf < pThresh),]
+mysnps[which(mysnps$p_wald_bh < pThresh),]
+sigsnps = mysnps[which(mysnps$p_wald_bh < pThresh),]
+
+#Correlate effect sizes of SNPs
+mvModLin = lm(beta_1 ~ beta_2, data = sigsnps)
+summary(mvModLin)
+plot(mvModLin)
+
+#Try quadratic model instead
+sigsnps$beta_2_squared = sigsnps$beta_2^2
+mvModQuad = lm(beta_1 ~ beta_2 + beta_2_squared, data = sigsnps)
+summary(mvModQuad)
+plot(mvModQuad)
+
+ggplot(data = sigsnps, aes(x = beta_2)) +
+  geom_point(aes(y = beta_1)) +
+  theme_classic() +
+  theme(text = element_text(size = 14)) + 
+  geom_abline(slope = mvModLin$coefficients[2], intercept = mvModLin$coefficients[1], lwd = 2) +
+  #stat_smooth(aes(y = beta_1),method = "lm", formula = y ~ x + I(x^2), size = 1) +
+  labs(x = "Estimated coefficent of SNP for FT16", y = "Estimated coefficient of SNP for RGR")
+
+#Extract results for qqman plots
+mvGWASresults = gemma_to_qqman(mysnps, pos)
+sigsnpLoc = mvGWASresults[which(mvGWASresults$SNP %in% sigsnps$rs),]
+sigsnpLoc = sigsnpLoc[order(sigsnpLoc$CHR, sigsnpLoc$BP),]
+
+write.csv(sigsnpLoc, "wholePanelSNPmvGWASsignificantResults.csv", row.names = F, quote = F)
+
+#Plot results
+manhattan(mvGWASresults, suggestiveline = -log10(max(sigsnps$p_wald)), genomewideline = -log10(pThresh/nrow(mvGWASresults)), col = c("black", "deepskyblue"))
+qq(mvGWASresults$P)
+
+```
+
+## uvGWAS results
+### FT Without GxE
+```{r}
+setwd("C:\\Users\\miles\\OneDrive\\Education\\MichiganStateUniversity\\Josephs_Lab_Projects\\pleiotropyGWAS\\01_arabidopsis_trait_correlations\\attempt9\\output")
+mysnps = fread("uvGWASresults_FT16_NoGxe.assoc.txt.gz")
+ft16snps = mysnps
+
+head(mysnps)
+summary(mysnps$p_wald)
+
+mysnps$p_wald_bf = p.adjust(mysnps$p_wald, method = "bonferroni")
+mysnps$p_wald_bh = p.adjust(mysnps$p_wald, method = "BH")
+
+#How many SNPs pass thresholds
+mysnps[which(mysnps$p_wald_bf < pThresh),] #bonferroni threshold
+mysnps[which(mysnps$p_wald_bh < pThresh),] #FDR threshold
+sigsnps = mysnps[which(mysnps$p_wald_bh < pThresh),]
+
+#Extract results for qqman plots
+uvGWASresults = gemma_to_qqman(mysnps, pos)
+
+#Plot results
+manhattan(uvGWASresults, suggestiveline = -log10(max(sigsnps$p_wald)), genomewideline = -log10(pThresh/nrow(uvGWASresults)), col = c("black", "deepskyblue"))
+
+qq(uvGWASresults$P)
+```
+
+### RGR Without GxE
+```{r}
+setwd("C:\\Users\\miles\\OneDrive\\Education\\MichiganStateUniversity\\Josephs_Lab_Projects\\pleiotropyGWAS\\01_arabidopsis_trait_correlations\\attempt9\\output")
+mysnps = fread("uvGWASresults_RGR_NoGxe.assoc.txt.gz")
+rgrsnps = mysnps
+
+#head(mysnps)
+#summary(mysnps$p_wald)
+
+mysnps$p_wald_bf = p.adjust(mysnps$p_wald, method = "bonferroni")
+mysnps$p_wald_bh = p.adjust(mysnps$p_wald, method = "BH")
+
+#How many SNPs pass thresholds?
+mysnps[which(mysnps$p_wald_bf < pThresh),]
+mysnps[which(mysnps$p_wald_bh < pThresh),]
+sigsnps = mysnps[which(mysnps$p_wald_bh < pThresh),]
+
+#Extract results for qqman plots
+uvGWASresults = gemma_to_qqman(mysnps, pos)
+sigsnpLoc = uvGWASresults[which(uvGWASresults$SNP %in% sigsnps$rs),]
+sigsnpLoc = sigsnpLoc[order(sigsnpLoc$CHR, sigsnpLoc$BP),]
+
+write.csv(sigsnpLoc, "wholePanelSNPuvGWASrgrSignificantResults.csv", row.names = F, quote = F)
+
+#Plot results
+manhattan(uvGWASresults, suggestiveline = -log10(max(sigsnps$p_wald)), genomewideline = -log10(pThresh/nrow(uvGWASresults)), col = c("black", "deepskyblue"))
+
+qq(uvGWASresults$P)
+```
+
+## Compare mvGWAS and uvGWAS
+```{r}
+mvuvComp = merge(mvGWASsnps, ft16snps, by = "rs")
+mvuvComp = merge(mvuvComp, rgrsnps, by = "rs")
+
+cor(mvuvComp$beta_1, mvuvComp$beta.x)
+cor(mvuvComp$beta_2, mvuvComp$beta.y)
+
+cor(mvuvComp$beta_2, mvuvComp$beta.x)
+cor(mvuvComp$beta_1, mvuvComp$beta.y)
+
+ggplot(mvuvComp, aes(beta_1, beta.x)) +
+  geom_point() +
+  theme_classic() +
+  theme(text = element_text(size = 14)) + 
+  labs(x = "mvGWAS coefficient for FT16", y = "uvGWAS coefficient for FT16")
+
+ggplot(mvuvComp, aes(beta_2, beta.y)) +
+  geom_point() +
+  theme_classic() +
+  theme(text = element_text(size = 14)) + 
+  labs(x = "mvGWAS coefficient for RGR", y = "uvGWAS coefficient for RGR")
+```
+
+## Compare dataset with imputed phenotypes to dataset without imputed phenotypes
+```{r}
+setwd(paste(wd,"\\output", sep = ""))
+imputedPheno = read.table("phenos_FT16_RGR_imputed.prdt.txt", sep = "\t")
+
+setwd(wd)
+originalPheno = read.table("phenos_FT16_RGR.txt", sep = "\t")
+
+cor(originalPheno$V1, originalPheno$V2, use = "pairwise.complete.obs")
+cor(imputedPheno$V1, imputedPheno$V2, use = "pairwise.complete.obs")
+
+plot(originalPheno$V1, originalPheno$V2)
+plot(imputedPheno$V1, imputedPheno$V2)
+```
+
+## PCGWAS without GxE
+```{r}
+setwd(paste(wd,"\\output", sep = ""))
+mysnps = fread("pcGWASresults_FT16_RGR_NoGxe.assoc.txt")
+#head(mysnps)
+#summary(mysnps$p_wald)
+
+mysnps$p_wald_bf = p.adjust(mysnps$p_wald, method = "bonferroni")
+mysnps$p_wald_bh = p.adjust(mysnps$p_wald, method = "BH")
+
+#How many SNPs pass thresholds
+mysnps[which(mysnps$p_wald_bf < 0.05),]
+mysnps[which(mysnps$p_wald_bh < 0.05),]
+
+#Extract results for qqman plots
+pcGWASresults = gemma_to_qqman(mysnps, pos)
+
+#Plot results
+manhattan(pcGWASresults, suggestiveline = FALSE, genomewideline = -log10(0.05/nrow(pcGWASresults)), col = c("black", "deepskyblue"))
+
+qq(pcGWASresults$P)
+```

@@ -1,0 +1,223 @@
+---
+title: "How does the growth-rate flowering time correlation vary with latitude?"
+author: "Miles Roberts"
+date: "2021-07-21"
+output: html_document
+---
+
+## Load growth rate data
+```{r}
+rm(list=ls())
+library(rworldmap) #For plotting map of geographic coordinates
+library(ggplot2)
+library(rworldxtra)
+
+#Load supplemental data from Vasseur et al. 2018 PNAS
+setwd("C:\\Users\\miles\\OneDrive\\Education\\MichiganStateUniversity\\Josephs_Lab_Projects\\pleiotropyGWAS\\01_arabidopsis_trait_correlations\\raw_data")
+lonlat = read.csv("pnas.1709141115.sd01.csv", skip = 6, header = T)
+str(lonlat)
+
+#Plot map of geographic coordinates
+#newmap <- getMap(resolution = "high")
+#plot(newmap, asp = 1)
+#points(lonlat$longitude, lonlat$latitude, col = "red", cex = .6, pch = 19)
+```
+## How do flowering time and growth rate vary with latitude?
+```{r}
+#Load flowering time data
+setwd("C:\\Users\\miles\\OneDrive\\Education\\MichiganStateUniversity\\Josephs_Lab_Projects\\pleiotropyGWAS\\01_arabidopsis_trait_correlations\\raw_data")
+ft = read.csv("1001genomes-FT10-FT16.csv", header = T)
+names(ft)[1] = "accessionid"
+
+lonlatFt = merge(lonlat, ft, by = "accessionid", all.x = T)
+
+corLatAnalysis = function(data, trait1, trait2, width){
+  mycor = c()
+  avgLat = c()
+  for(i in 1:(nrow(data) - (width - 1))){
+    dataSub = data[i:(i + (width - 1)),]
+    mycor = c(mycor, cor(dataSub[,trait1], dataSub[,trait2], use = "pairwise.complete.obs"))
+    avgLat = c(avgLat, mean(dataSub$latitude, na.rm = T))
+  }
+  result = list(avgLat, mycor)
+  names(result)[1] = "avgLat"
+  names(result)[2] = "correlation"
+  return(result)
+}
+
+#Repeat correlation analysis from Debieu et al. 2013
+lonlatFt = lonlatFt[order(lonlatFt$latitude),c("accessionid", "longitude", "latitude", "FT16_mean", "FT10_mean", "RGR", "Growth.rate")]
+lonlatFtSort = unique(lonlatFt[complete.cases(lonlatFt),])
+
+ft16rgr = corLatAnalysis(lonlatFtSort, "FT16_mean", "RGR", 75)
+windowsFonts(A = windowsFont("Calibri"))
+plot(ft16rgr$avgLat, ft16rgr$correlation, ylab = "FT16-RGR correlation", xlab = "Average latitude within sampling window", las = 1, pch = 19, family = "A", cex.axis = 1.25)
+
+#Repeat analysis for growth rate
+ft16growthrate = corLatAnalysis(lonlatFtSort, "FT16_mean", "Growth.rate", 75)
+windowsFonts(A = windowsFont("Calibri"))
+plot(ft16growthrate$avgLat, ft16growthrate$correlation, ylab = "FT16-Growth Rate correlation", xlab = "Average latitude across sampling window", las = 1, pch = 19, family = "A", cex.axis = 1.25)
+
+#Repeat analysis using flowering time at 10C
+ft10rgr = corLatAnalysis(lonlatFtSort, "FT10_mean", "RGR", 75)
+windowsFonts(A = windowsFont("Calibri"))
+plot(ft10rgr$avgLat, ft10rgr$correlation, ylab = "FT10-RGR correlation", xlab = "Average latitude within sampling window", las = 1, pch = 19, family = "A", cex.axis = 1.25)
+
+#Repeat analysis using flowering time at 10C and growth rate
+ft10growthrate = corLatAnalysis(lonlatFtSort, "FT10_mean", "Growth.rate", 75)
+windowsFonts(A = windowsFont("Calibri"))
+plot(ft10growthrate$avgLat, ft10growthrate$correlation, ylab = "FT10-Growth rate correlation", xlab = "Average latitude within sampling window", las = 1, pch = 19, family = "A", cex.axis = 1.25)
+
+#Which pair of variables has the least missing data?
+table(complete.cases(lonlatFt[,c("FT16_mean", "RGR")]))
+table(complete.cases(lonlatFt[,c("FT10_mean", "RGR")]))
+table(complete.cases(lonlatFt[,c("FT16_mean", "Growth.rate")]))
+table(complete.cases(lonlatFt[,c("FT10_mean", "Growth.rate")]))
+
+#Plot map of individuals included in correlation analysis
+newmap <- getMap(resolution = "low")
+plot(newmap, asp = 1)
+points(lonlatFtSort$longitude, lonlatFtSort$latitude, col = "red", cex = .6, pch = 19)
+```
+
+## Order phenotype data to match AraGWAS matrix
+```{r}
+setwd("C:\\Users\\miles\\OneDrive\\Education\\MichiganStateUniversity\\Josephs_Lab_Projects\\pleiotropyGWAS\\01_arabidopsis_trait_correlations\\raw_data")
+#get key: column numbers -> accession numbers
+gen_acc = read.table("accessions.txt", sep = "\t")
+gen_acc$V2 = as.numeric(gsub("b", "", gen_acc$V2))
+head(gen_acc)
+
+#Check that data is properly ordered. Need TRUE
+#Reorder phenotype matrix to match order of columns in bimbam file. 
+lonlatOrderedFinal = NULL
+for(acc in gen_acc$V2[which(gen_acc$V2 %in% lonlatFt$accessionid)]){
+  row = lonlatFt[which(lonlatFt$accessionid == acc), ]
+  lonlatOrderedFinal = rbind(lonlatOrderedFinal, row)
+}
+
+#Remove accessions where latitude is not known
+lonlatOrderedFinal = lonlatOrderedFinal[which(is.na(lonlatOrderedFinal$latitude) == F),]
+nrow(lonlatOrderedFinal)
+
+#Any duplicate accessions?
+any(duplicated(lonlatOrderedFinal$accessionid))
+mydups = lonlatOrderedFinal$accessionid[duplicated(lonlatOrderedFinal$accessionid)]
+lonlatOrderedFinal[which(lonlatOrderedFinal$accessionid %in% mydups),]
+lonlatOrderedFinal = unique(lonlatOrderedFinal)
+nrow(lonlatOrderedFinal)
+
+#Save phenotypes, environment covariate
+lonlatOrderedFinal$FT16t = qqnorm(lonlatOrderedFinal$FT16_mean,plot.it =F)$x
+lonlatOrderedFinal$RGRt = qqnorm(lonlatOrderedFinal$RGR,plot.it =F)$x
+
+write.table(lonlatOrderedFinal[,c("FT16t", "RGRt")], "phenos_FT16_RGR_normalized.txt", sep = "\t", row.names = F, col.names = F, quote = F)
+
+write.table(cbind(rep(1, times = nrow(lonlatOrderedFinal)), lonlatOrderedFinal[,"latitude"]), "latitudesAndIntercept.txt", sep = "\t", row.names = F, col.names = F, quote = F)
+
+#Print out columns needed to make bimbam file
+orderedCol = (gen_acc$V1[which(gen_acc$V2 %in% lonlatOrderedFinal$accessionid)] + 2)
+paste(orderedCol, collapse = ",")
+length(orderedCol)
+```
+
+## Exclude phenotype data from latitude and longitude outliers and redo correlation analysis
+```{r}
+boxplot(lonlatFtSort$longitude)
+boxplot(lonlatFtSort$latitude)
+lonlatFtSort = lonlatFtSort[which(lonlatFtSort$longitude > -80 & lonlatFtSort$longitude < 80 & lonlatFtSort$latitude > 20),]
+
+#Map out remaining accessions
+newmap <- getMap(resolution = "low")
+plot(newmap, asp = 1)
+points(lonlatFtSort$longitude, lonlatFtSort$latitude, col = "red", cex = .6, pch = 19)
+
+#Look for correlations changing with latitude
+ft16rgr = corLatAnalysis(lonlatFtSort, "FT16_mean", "RGR", 75)
+windowsFonts(A = windowsFont("Calibri"))
+plot(ft16rgr$avgLat, ft16rgr$correlation, ylab = "FT16-RGR correlation", xlab = "Average latitude within sampling window", las = 1, pch = 19, family = "A", cex.axis = 1.25)
+```
+
+## Split up phenotype data into windows for sliding-window GWAS (swGWAS?)
+```{r}
+#Re-order data by latitude
+latOrdered = lonlatOrderedFinal[order(lonlatOrderedFinal$latitude),]
+
+#Subset only individuals with phenotypes
+latOrdered = latOrdered[,c("accessionid", "latitude", "longitude", "FT16_mean", "RGR")]
+
+#Create object to hold subsetting commands for each dataset
+subsetCommands = NULL
+
+for(i in 0:19){
+  
+  #Keep track of window start and end positions
+  start = 1 + i*15
+  end = 132 + i*15
+  print(c(start,end))
+  
+  #Subset out window of data
+  latOrderedSub = latOrdered[c(start:end),]
+  
+  #Order phenotypes to match genotype matrix 
+  genoOrdered = NULL
+  for(acc in gen_acc$V2[which(gen_acc$V2 %in% latOrderedSub$accessionid)]){
+    row = latOrderedSub[which(latOrderedSub$accessionid == acc), ]
+    genoOrdered = rbind(genoOrdered, row)
+  }
+  
+  #Extract phenotypes, normalize, then write to text file
+  phenoOrdered = genoOrdered[,"FT16_mean"]
+  phenoOrdered = qqnorm(phenoOrdered,plot.it =F)$x
+  write.table(phenoOrdered, paste("swGWAS_window", i, "_FTphenos.txt", sep = ""), row.names = F, col.names = F, sep = "\t", quote = F)
+  
+  phenoOrdered = genoOrdered[,"RGR"]
+  phenoOrdered = qqnorm(phenoOrdered,plot.it =F)$x
+  write.table(phenoOrdered, paste("swGWAS_window", i, "_RGRphenos.txt", sep = ""), row.names = F, col.names = F, sep = "\t", quote = F)
+  
+  #Write out cut command for subsetting of original SNP file
+  orderedCol = (gen_acc$V1[which(gen_acc$V2 %in% genoOrdered$accessionid)] + 2)
+  subsetCommands = rbind(subsetCommands, paste("zcat ../raw_data/snps.txt.gz | cut -f 1,", paste(orderedCol, collapse = ","), " | sed -e 's/\t/\tX\tY\t/' | sed -e 's/\t/,/g' | sed 's/^/rs/g' | sed 's/,1/,2/g' | sed '1d'> swGWAS_window", i, "_genos.txt", sep = ""))
+  subsetCommands = rbind(subsetCommands,paste("gzip swGWAS_window", i, "_genos.txt", sep = ""))
+  
+  print(c(mean(latOrderedSub$latitude), mean(latOrderedSub$longitude)))
+  
+}
+
+write.table(subsetCommands, "s05_subsetForSlidingWindowGWAS.bash", row.names = F, col.names = F, sep = "\t", quote = F)
+```
+
+## Check how many accessions have WGS data
+```{r}
+setwd("C:\\Users\\miles\\OneDrive\\Education\\MichiganStateUniversity\\Josephs_Lab_Projects\\pleiotropyGWAS\\01_arabidopsis_trait_correlations\\raw_data")
+wgsAcc = read.csv("SraRunInfo_arabidopsis_wgs.csv", header = T)
+wgsAcc$SampleName
+
+length(which(lonlatOrderedFinal$accessionid %in% wgsAcc$SampleName))
+
+sras = wgsAcc[which(wgsAcc$SampleName %in% lonlatOrderedFinal$accessionid), "Run"]
+sampleNames = wgsAcc[which(wgsAcc$SampleName %in% lonlatOrderedFinal$accessionid), "SampleName"]
+
+write.table(sras, "arabidopsis_wgs_sras.txt", row.names = F, col.names = F, quote = F)
+write.table(sampleNames, "arabidopsis_wgs_accessions.txt", row.names = F, col.names = F, quote = F)
+```
+
+
+## Order phenotype data for kmer-based GWAS
+```{r}
+kmerPheno = unique(lonlatFt[which(lonlatFt$accessionid %in% sampleNames),])
+kmerPheno$accessionid = as.character(kmerPheno$accessionid)
+kmerPhenoOrd = kmerPheno[order(kmerPheno$accessionid),]
+
+#Normalize phenotypes
+kmerPhenoOrd$FT16_meanT = qqnorm(kmerPhenoOrd$FT16_mean,plot.it =F)$x
+kmerPhenoOrd$RGRT = qqnorm(kmerPhenoOrd$RGR,plot.it =F)$x
+hist(kmerPhenoOrd$FT16_meanT)
+hist(kmerPhenoOrd$RGRT)
+
+#print out phenotype and latitude data
+#Print out with accession numbers too so that phenotypes can be merged with fam file in later analyses
+write.table(kmerPhenoOrd[,c("FT16_meanT", "RGRT")], "pheno_kmerGWAS_FT16_RGR_normalized.txt", row.names = F, col.names = F, quote = F)
+write.table(kmerPhenoOrd[,c("accessionid", "FT16_meanT", "RGRT")], "pheno_kmerGWAS_FT16_RGR_normalized_withAcc.txt", row.names = F, col.names = F, quote = F) 
+write.table(kmerPhenoOrd[,c("latitude")], "latitudes_kmerGWAS.txt", row.names = F, col.names = F, quote = F)
+```

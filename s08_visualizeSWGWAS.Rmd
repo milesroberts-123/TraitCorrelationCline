@@ -1,0 +1,162 @@
+---
+title: "s06_4_visualizeSWGWAS.Rmd"
+author: "Miles Roberts"
+date: "2021-07-22"
+output: html_document
+---
+
+
+```{r}
+rm(list=ls())
+library(ggplot2)
+library(gridExtra)
+
+#Load in data
+sigSnps = read.table("snpGeneCounts.txt", sep = " ", header = F, fill = T)
+
+#Rearrange dataset so that visualization is easier
+names(sigSnps)[c(2,3)] = c("Total","inGenes")
+sigSnps$window = gsub("_.*", "", sigSnps$V1)
+sigSnps$window = as.numeric(gsub("./output/window", "", sigSnps$window))
+
+sigSnps$trait = gsub(".bed", "", sigSnps$V1)
+sigSnps$trait = gsub(".*_uvGWASresults_", "", sigSnps$trait)
+
+sigSnps$cutoff = gsub("./output/window[0-9]*_", "", sigSnps$V1)
+sigSnps$cutoff = gsub("_.*", "", sigSnps$cutoff)
+
+sigSnps = sigSnps[order(sigSnps$cutoff, sigSnps$trait, sigSnps$window),]
+
+#Replace NAs with zeros
+sigSnps$inGenes[which(is.na(sigSnps$inGenes))] = 0
+
+#Calculate fraction of snps not in genes
+sigSnps$pNonGene = (sigSnps$Total - sigSnps$inGenes)/sigSnps$Total
+
+#Change trait names
+sigSnps$trait[which(sigSnps$trait == "FT")] = "flowering time"
+sigSnps$trait[which(sigSnps$trait == "RGR")] = "growth rate"
+
+#Add in zeros
+result = NULL
+for(mytrait in unique(sigSnps$trait)){
+  for(mycutoff in unique(sigSnps$cutoff)){
+    windows = sigSnps[which(sigSnps$trait == mytrait & sigSnps$cutoff == mycutoff),"window"]
+    missWind = (0:19)[!(0:19 %in% windows)]
+  }
+  result = data.frame(V1 = rep(NA, times = length(missWind)), Total = rep(0, times = length(missWind)), inGenes = rep(0, times = length(missWind)), window = missWind, trait = rep(mytrait, times = length(missWind)), cutoff = rep(mycutoff, times = length(missWind)), pNonGene = rep(NaN, times = length(missWind)))
+  
+  sigSnps = rbind(sigSnps, result)
+}
+
+#Compare results from two cutoffs
+sigSnps010 = sigSnps[which(sigSnps$cutoff == "010"),]
+
+#Look at just raw numbers of snps
+ggplot(sigSnps010[which(sigSnps010$trait == "flowering time"),], aes(x = window, y = Total, fill = trait)) +
+  #geom_point() +
+  #geom_line() +
+  geom_bar(stat="identity", position=position_dodge()) +
+  scale_fill_manual(values=c('black')) +
+  theme_classic() +
+  #coord_flip() +
+  theme(text = element_text(size = 20)) +
+  labs(x = "Latitude interval", y = "Number of significant SNPs")
+
+ggplot(sigSnps010[which(sigSnps010$trait %in% c("flowering time", "growth rate")),], aes(x = window, y = Total, fill = trait)) +
+  #geom_point() +
+  #geom_line() +
+  geom_bar(stat="identity", position=position_dodge()) +
+  scale_fill_manual(values=c('black', 'deepskyblue')) +
+  theme_classic() +
+  #coord_flip() +
+  theme(text = element_text(size = 20)) +
+  labs(x = "Latitude interval", y = "Number of significant SNPs")
+
+```
+
+## Repeat for SNPs in open chromatin regions
+```{r}
+rm(list=ls())
+
+#Load in data
+sigSnps = read.table("snpCREcounts.txt", sep = " ", header = F, fill = T)
+
+#Rearrange dataset so that visualization is easier
+names(sigSnps)[c(2,3)] = c("Total","inCREs")
+sigSnps$window = gsub("_.*", "", sigSnps$V1)
+sigSnps$window = as.numeric(gsub("./output/window", "", sigSnps$window))
+
+sigSnps$trait = gsub(".bed", "", sigSnps$V1)
+sigSnps$trait = gsub(".*_uvGWASresults_", "", sigSnps$trait)
+
+sigSnps$cutoff = gsub("./output/window[0-9]*_", "", sigSnps$V1)
+sigSnps$cutoff = gsub("_.*", "", sigSnps$cutoff)
+
+sigSnps = sigSnps[order(sigSnps$cutoff, sigSnps$trait, sigSnps$window),]
+
+#Replace NAs with zeros
+sigSnps$inCREs[which(is.na(sigSnps$inCREs))] = 0
+
+#Calculate fraction of snps that are in CREs
+sigSnps$pCRE = sigSnps$inCREs/sigSnps$Total
+
+#Change trait names
+sigSnps$trait[which(sigSnps$trait == "FT")] = "flowering time"
+sigSnps$trait[which(sigSnps$trait == "RGR")] = "growth rate"
+
+#Add in zeros
+result = NULL
+for(mytrait in unique(sigSnps$trait)){
+  for(mycutoff in unique(sigSnps$cutoff)){
+    windows = sigSnps[which(sigSnps$trait == mytrait & sigSnps$cutoff == mycutoff),"window"]
+    missWind = (0:19)[!(0:19 %in% windows)]
+  }
+  result = data.frame(V1 = rep(NA, times = length(missWind)), Total = rep(0, times = length(missWind)), inCREs = rep(0, times = length(missWind)), window = missWind, trait = rep(mytrait, times = length(missWind)), cutoff = rep(mycutoff, times = length(missWind)), pCRE = rep(NaN, times = length(missWind)))
+  
+  sigSnps = rbind(sigSnps, result)
+}
+
+
+#Compare results from two cutoffs
+#NGOC = non-genic open chromatin
+sigSnps010 = sigSnps[which(sigSnps$cutoff == "010"),]
+
+textsize = 14
+
+ggplot(sigSnps010[which(sigSnps010$trait == "flowering time"),], aes(x = window, y = pCRE, fill = trait)) +
+  #geom_point() +
+  geom_bar(stat="identity", position=position_dodge()) +
+  scale_fill_manual(values=c('black')) +
+  theme_classic() +
+  geom_hline(yintercept=7418971/119668634, linetype="dashed", color = "black", size = 2) +
+  #coord_flip() +
+  theme(text = element_text(size = textsize)) +
+  labs(x = "Latitude interval", y = "Proportion of SNPs in NGOC")
+
+ggplot(sigSnps010[which(sigSnps010$trait %in% c("flowering time", "growth rate")),], aes(x = window, y = pCRE, fill = trait)) +
+  #geom_point() +
+  geom_bar(stat="identity", position=position_dodge()) +
+  scale_fill_manual(values=c('black', "deepskyblue")) +
+  theme_classic() +
+  geom_hline(yintercept=7418971/119668634, linetype="dashed", color = "black", size = 2) +
+  #coord_flip() +
+  theme(text = element_text(size = textsize)) +
+  labs(x = "Latitude interval", y = "Proportion of SNPs in NGOC")
+
+#Look at just raw numbers of snps
+ggplot(sigSnps010, aes(x = window, y = inCREs, color = trait)) +
+  geom_point() +
+  geom_line() +
+  theme_classic() +
+  #coord_flip() +
+  theme(text = element_text(size = textsize)) +
+  labs(x = "Latitude interval", y = "Number of SNPs in NGOC")
+
+
+```
+
+
+
+```
+

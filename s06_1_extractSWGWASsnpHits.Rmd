@@ -1,0 +1,108 @@
+---
+title: "s06_2_visualize_swGWAS"
+author: "Miles Roberts"
+date: "2021-07-22"
+output: html_document
+---
+
+#Goals:
+*Load in GWAS data
+*Identify significant SNPs
+*Output bed files of significant SNPs, so that I can then use bedtools to see whether the SNPs fall in genes or CREs
+
+```{r}
+rm(list = ls())
+library(ggplot2)
+library(data.table)
+library(R.utils)
+library(gridExtra)
+
+# Save your current working directory
+notebookDirectory <- getwd()
+
+#Function to quikly read in data
+read.mytable = function(x){
+	as.data.frame(fread(x, sep = "\t", header = T))
+}
+
+getFDR010cutoff = function(x){
+ p_fdr = p.adjust(x$p_wald, method = "fdr")
+ result = max(x$p_wald[which(p_fdr < 0.1)])
+ if(is.infinite(result)){
+   result = 0
+ }
+ return(result)
+}
+
+#Function to convert SNP identifiers to chromosomal locations
+#Got these conversions by manually checking position ids against chromosome lengths
+id_to_chrom = function(x){
+	all_snpids = as.numeric(gsub("rs","",x))
+	all_chrom = all_snpids
+
+	all_chrom[which(0 <= all_snpids & all_snpids <= 2597734)] = 1
+
+	all_chrom[which(2597735 <= all_snpids & all_snpids <= 4466529)] = 2
+
+	all_chrom[which(4466530 <= all_snpids & all_snpids <= 6660781)] = 3
+
+	all_chrom[which(6660782 <= all_snpids & all_snpids <= 8427785)] = 4
+
+	all_chrom[which(8427786 <= all_snpids & all_snpids <= 10709465)] = 5
+
+	return(all_chrom)
+}
+
+#Load in positions of variants in genome
+setwd("..\\raw_data")
+pos = fread("positions.txt", sep = "\t", header = T)
+
+#Load in data, loop over the three different sliding window GWAS datasets
+mypatterns = c("uvGWASresults_FT", "uvGWASresults_RGR")
+setwd("..\\attempt9\\output")
+
+for(mypattern in mypatterns){
+
+temp = list.files(pattern = paste(mypattern, "_window.*.assoc.txt.gz", sep = ""))
+print(temp)
+swGWAS = lapply(temp, read.mytable)
+
+cutoffs = lapply(swGWAS,getFDR010cutoff)
+
+for(i in 1:length(swGWAS)){
+  cutoff = cutoffs[[i]]
+  
+  #If the FDR cutoff is 0, then there are no significant kmers
+  if(cutoff == 0){
+    next
+  }
+  
+  #Subset out one uvGWAS dataset
+  swGWA = swGWAS[[i]]
+  snps = swGWA[which(swGWA$p_wald <= cutoff),"rs"]
+  
+  #Convert from rsid to chromosome
+  chroms = id_to_chrom(snps)
+  
+  #Next, get position on chromosome
+  allPos = pos[which(pos$V1 %in% as.numeric(gsub("rs","",snps))), 2]
+
+  #Convert chromosome number to chromosome id in annotation
+  chroms[which(chroms == 1)] = "NC_003070.9"
+  chroms[which(chroms == 2)] = "NC_003071.7"
+  chroms[which(chroms == 3)] = "NC_003074.8"
+  chroms[which(chroms == 4)] = "NC_003075.7"
+  chroms[which(chroms == 5)] = "NC_003076.8"
+  
+  #Identify which window results belong to
+  window = temp[i]
+  window = gsub(".assoc.txt.gz", "", window)
+  window = gsub("^.*window", "window", window)
+  
+  #save results
+  write.table(cbind(chroms, allPos - 1, allPos), paste(window, "_010_", mypattern, ".bed", sep = ""), sep = "\t", quote = F, row.names = F, col.names = F)
+}
+
+}
+```
+
